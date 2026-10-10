@@ -197,12 +197,38 @@ async function createSale(req, res) {
       });
     }
 
-    // Create the sale header.
+    // Create the sale header with initial ledger values to satisfy NOT NULL constraints.
+    // const saleResult = await client.query(
+    //   `INSERT INTO sales (customer_name, notes, total_amount, amount_paid, due_amount, payment_status)
+    //    VALUES ($1, $2, 0, 0, 0, 'UNPAID')
+    //    RETURNING id, customer_name, sale_date, total_amount, amount_paid, due_amount, payment_status, notes, created_at`,
+    //   [customer_name === null ? null : customer_name.trim(), notes]
+    // );
+
+    // const sale = saleResult.rows[0];
+
+    
     const saleResult = await client.query(
-      `INSERT INTO sales (customer_name, notes)
-       VALUES ($1, $2)
-       RETURNING id, customer_name, sale_date, total_amount, notes, created_at`,
-      [customer_name === null ? null : customer_name.trim(), notes]
+        `INSERT INTO sales (
+            customer_name,
+            notes,
+            total_amount,
+            amount_paid,
+            due_amount,
+            payment_status
+        )
+        VALUES ($1, $2, 0, 0, 0, 'UNPAID')
+        RETURNING
+            id,
+            customer_name,
+            sale_date,
+            total_amount,
+            amount_paid,
+            due_amount,
+            payment_status,
+            notes,
+            created_at`,
+        [customer_name, notes]
     );
 
     const sale = saleResult.rows[0];
@@ -250,11 +276,18 @@ async function createSale(req, res) {
 
     const totalAmount = totalResult.rows[0].total_amount;
 
+    // Update sale totals and initialize credit/ledger fields properly.
     const updatedSaleResult = await client.query(
       `UPDATE sales
-       SET total_amount = $1
+       SET total_amount = $1::numeric(14, 2),
+            due_amount = $1::numeric(14, 2),
+            amount_paid = 0,
+            payment_status = CASE
+            WHEN $1::numeric(14, 2) = 0::numeric THEN 'PAID'
+            ELSE 'UNPAID'
+            END
        WHERE id = $2
-       RETURNING id, customer_name, sale_date, total_amount, notes, created_at`,
+       RETURNING id, customer_name, sale_date, total_amount, amount_paid, due_amount, payment_status, notes, created_at`,
       [totalAmount, sale.id]
     );
 
@@ -284,6 +317,8 @@ async function createSale(req, res) {
       data: {
         ...updatedSaleResult.rows[0],
         total_amount: Number(updatedSaleResult.rows[0].total_amount),
+        amount_paid: Number(updatedSaleResult.rows[0].amount_paid),
+        due_amount: Number(updatedSaleResult.rows[0].due_amount),
         items: itemsResult.rows.map(formatSaleItem),
       },
     });
