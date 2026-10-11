@@ -7,9 +7,19 @@ import {
   inputCls, btnPrimary, btnGhost, btnDanger,
 } from '../components/ui.jsx';
 
-const emptyAdd = {
+const emptyValues = {
   sku: '', name: '', description: '', cost_price: '', selling_price: '', stock_quantity: '',
 };
+
+// Fill the form with the product's current values
+const toFormValues = (p) => ({
+  sku: p.sku,
+  name: p.name,
+  description: p.description || '',
+  cost_price: p.cost_price,
+  selling_price: p.selling_price,
+  stock_quantity: p.stock_quantity,
+});
 
 export default function Dashboard() {
   const toast = useToast();
@@ -18,9 +28,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  const [addForm, setAddForm] = useState(null);   // null = closed
-  const [editForm, setEditForm] = useState(null); // null = closed
-  const [deleting, setDeleting] = useState(null); // product to delete, or null
+  // null = closed, otherwise { mode: 'add' | 'edit', id, values }
+  const [formModal, setFormModal] = useState(null);
+  const [deleting, setDeleting] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -36,51 +46,38 @@ export default function Dashboard() {
   useEffect(() => { load(); }, [load]);
 
   const lowStockCount = products.filter((p) => p.stock_quantity <= LOW_STOCK_LIMIT).length;
+  const isEdit = formModal?.mode === 'edit';
 
-  /* ---------- Add ---------- */
-  const submitAdd = async (e) => {
+  const setValue = (key) => (e) =>
+    setFormModal({ ...formModal, values: { ...formModal.values, [key]: e.target.value } });
+
+  /* ---------- Add / Edit (same form) ---------- */
+  const submitForm = async (e) => {
     e.preventDefault();
-    const f = addForm;
-    if (!f.sku.trim()) return toast('error', 'SKU is required');
-    if (!f.name.trim()) return toast('error', 'Product name is required');
-    if (f.cost_price === '' || Number(f.cost_price) < 0) return toast('error', 'Enter a valid cost price');
-    if (f.selling_price === '' || Number(f.selling_price) < 0) return toast('error', 'Enter a valid selling price');
-    if (f.stock_quantity === '' || Number(f.stock_quantity) < 0) return toast('error', 'Enter the opening stock (0 or more)');
+    const v = formModal.values;
+    if (!String(v.sku).trim()) return toast('error', 'SKU is required');
+    if (!String(v.name).trim()) return toast('error', 'Product name is required');
+    if (v.cost_price === '' || Number(v.cost_price) < 0) return toast('error', 'Enter a valid cost price');
+    if (v.selling_price === '' || Number(v.selling_price) < 0) return toast('error', 'Enter a valid selling price');
+    if (v.stock_quantity === '' || Number(v.stock_quantity) < 0 || !Number.isInteger(Number(v.stock_quantity)))
+      return toast('error', 'Stock must be a whole number (0 or more)');
+
+    const body = {
+      sku: String(v.sku).trim(),
+      name: String(v.name).trim(),
+      description: String(v.description).trim(),
+      cost_price: Number(v.cost_price),
+      selling_price: Number(v.selling_price),
+      stock_quantity: Number(v.stock_quantity),
+    };
 
     setBusy(true);
     try {
-      const res = await productsApi.create({
-        sku: f.sku.trim(),
-        name: f.name.trim(),
-        description: f.description.trim(),
-        cost_price: Number(f.cost_price),
-        selling_price: Number(f.selling_price),
-        stock_quantity: Number(f.stock_quantity),
-      });
-      toast('success', res.message || 'Product created successfully');
-      setAddForm(null);
-      load();
-    } catch (err) {
-      toast('error', err.message);
-    }
-    setBusy(false);
-  };
-
-  /* ---------- Edit (only name + selling_price) ---------- */
-  const submitEdit = async (e) => {
-    e.preventDefault();
-    const f = editForm;
-    if (!f.name.trim()) return toast('error', 'Product name is required');
-    if (f.selling_price === '' || Number(f.selling_price) < 0) return toast('error', 'Enter a valid selling price');
-
-    setBusy(true);
-    try {
-      const res = await productsApi.update(f.id, {
-        name: f.name.trim(),
-        selling_price: Number(f.selling_price),
-      });
-      toast('success', res.message || 'Product updated successfully');
-      setEditForm(null);
+      const res = isEdit
+        ? await productsApi.update(formModal.id, body)
+        : await productsApi.create(body);
+      toast('success', res.message || (isEdit ? 'Product updated successfully' : 'Product created successfully'));
+      setFormModal(null);
       load();
     } catch (err) {
       toast('error', err.message);
@@ -104,11 +101,10 @@ export default function Dashboard() {
 
   if (loading) return <PageLoader />;
 
-  const setAdd = (key) => (e) => setAddForm({ ...addForm, [key]: e.target.value });
-  const setEdit = (key) => (e) => setEditForm({ ...editForm, [key]: e.target.value });
-
+  const openEdit = (p) => setFormModal({ mode: 'edit', id: p.id, values: toFormValues(p) });
   const stockClass = (p) =>
     p.stock_quantity <= LOW_STOCK_LIMIT ? 'font-semibold text-red-600' : 'text-slate-800';
+  const latestCost = (p) => (p.latest_unit_cost == null ? '—' : formatMoney(p.latest_unit_cost));
 
   return (
     <div className="space-y-6">
@@ -123,7 +119,7 @@ export default function Dashboard() {
       <Card>
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">Products</h2>
-          <button className={btnPrimary} onClick={() => setAddForm(emptyAdd)}>
+          <button className={btnPrimary} onClick={() => setFormModal({ mode: 'add', values: emptyValues })}>
             <Plus size={16} /> Add Product
           </button>
         </div>
@@ -137,6 +133,7 @@ export default function Dashboard() {
                 <th>SKU</th>
                 <th className="text-right">Stock</th>
                 <th className="text-right">Cost Price</th>
+                <th className="text-right">Latest Purchase Cost</th>
                 <th className="text-right">Selling Price</th>
                 <th className="text-right">Actions</th>
               </tr>
@@ -156,13 +153,10 @@ export default function Dashboard() {
                     )}
                   </td>
                   <td className="text-right">{formatMoney(p.cost_price)}</td>
+                  <td className="text-right">{latestCost(p)}</td>
                   <td className="text-right">{formatMoney(p.selling_price)}</td>
                   <td className="text-right">
-                    <button
-                      className="p-2 text-slate-500 hover:text-indigo-600"
-                      title="Edit"
-                      onClick={() => setEditForm({ id: p.id, name: p.name, selling_price: p.selling_price })}
-                    >
+                    <button className="p-2 text-slate-500 hover:text-indigo-600" title="Edit" onClick={() => openEdit(p)}>
                       <Pencil size={16} />
                     </button>
                     <button className="p-2 text-slate-500 hover:text-red-600" title="Delete" onClick={() => setDeleting(p)}>
@@ -192,15 +186,13 @@ export default function Dashboard() {
                   Stock {p.stock_quantity}
                 </span>
               </div>
-              <div className="mt-2 flex justify-between text-sm text-slate-600">
-                <span>Cost {formatMoney(p.cost_price)}</span>
-                <span>Sell {formatMoney(p.selling_price)}</span>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-slate-500">
+                <div>Cost<p className="text-sm text-slate-800">{formatMoney(p.cost_price)}</p></div>
+                <div>Latest cost<p className="text-sm text-slate-800">{latestCost(p)}</p></div>
+                <div>Selling<p className="text-sm text-slate-800">{formatMoney(p.selling_price)}</p></div>
               </div>
               <div className="mt-3 flex justify-end gap-2">
-                <button
-                  className={btnGhost}
-                  onClick={() => setEditForm({ id: p.id, name: p.name, selling_price: p.selling_price })}
-                >
+                <button className={btnGhost} onClick={() => openEdit(p)}>
                   <Pencil size={14} /> Edit
                 </button>
                 <button className={btnGhost} onClick={() => setDeleting(p)}>
@@ -216,46 +208,36 @@ export default function Dashboard() {
         )}
       </Card>
 
-      {/* Add modal */}
-      {addForm && (
-        <Modal title="Add Product" onClose={() => setAddForm(null)}>
-          <form onSubmit={submitAdd} className="space-y-3">
-            <Field label="SKU *"><input className={inputCls} value={addForm.sku} onChange={setAdd('sku')} /></Field>
-            <Field label="Product name *"><input className={inputCls} value={addForm.name} onChange={setAdd('name')} /></Field>
+      {/* Add / Edit modal */}
+      {formModal && (
+        <Modal title={isEdit ? 'Edit Product' : 'Add Product'} onClose={() => setFormModal(null)}>
+          <form onSubmit={submitForm} className="space-y-3">
+            <Field label="SKU *"><input className={inputCls} value={formModal.values.sku} onChange={setValue('sku')} /></Field>
+            <Field label="Product name *"><input className={inputCls} value={formModal.values.name} onChange={setValue('name')} /></Field>
             <Field label="Description">
-              <textarea rows="2" className={inputCls} value={addForm.description} onChange={setAdd('description')} />
+              <textarea rows="2" className={inputCls} value={formModal.values.description} onChange={setValue('description')} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Cost price *">
-                <input type="number" min="0" step="0.01" className={inputCls} value={addForm.cost_price} onChange={setAdd('cost_price')} />
+                <input type="number" min="0" step="0.01" className={inputCls} value={formModal.values.cost_price} onChange={setValue('cost_price')} />
               </Field>
               <Field label="Selling price *">
-                <input type="number" min="0" step="0.01" className={inputCls} value={addForm.selling_price} onChange={setAdd('selling_price')} />
+                <input type="number" min="0" step="0.01" className={inputCls} value={formModal.values.selling_price} onChange={setValue('selling_price')} />
               </Field>
             </div>
-            <Field label="Opening stock quantity *">
-              <input type="number" min="0" step="1" className={inputCls} value={addForm.stock_quantity} onChange={setAdd('stock_quantity')} />
+            <Field label={isEdit ? 'Stock quantity *' : 'Opening stock quantity *'}>
+              <input type="number" min="0" step="1" className={inputCls} value={formModal.values.stock_quantity} onChange={setValue('stock_quantity')} />
             </Field>
+            {isEdit && (
+              <p className="rounded bg-amber-50 p-2 text-xs text-amber-700">
+                Changing stock here does not create a purchase or sale record. For normal stock changes use Stock IN or Stock OUT.
+              </p>
+            )}
             <div className="flex justify-end gap-2 pt-2">
-              <button type="button" className={btnGhost} onClick={() => setAddForm(null)}>Cancel</button>
-              <button className={btnPrimary} disabled={busy}>{busy && <Spinner />} Save Product</button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
-      {/* Edit modal */}
-      {editForm && (
-        <Modal title="Edit Product" onClose={() => setEditForm(null)}>
-          <form onSubmit={submitEdit} className="space-y-3">
-            <Field label="Product name *"><input className={inputCls} value={editForm.name} onChange={setEdit('name')} /></Field>
-            <Field label="Selling price *">
-              <input type="number" min="0" step="0.01" className={inputCls} value={editForm.selling_price} onChange={setEdit('selling_price')} />
-            </Field>
-            <p className="text-xs text-slate-500">Stock changes only through Stock IN and Stock OUT.</p>
-            <div className="flex justify-end gap-2 pt-2">
-              <button type="button" className={btnGhost} onClick={() => setEditForm(null)}>Cancel</button>
-              <button className={btnPrimary} disabled={busy}>{busy && <Spinner />} Update</button>
+              <button type="button" className={btnGhost} onClick={() => setFormModal(null)}>Cancel</button>
+              <button className={btnPrimary} disabled={busy}>
+                {busy && <Spinner />} {isEdit ? 'Save Changes' : 'Save Product'}
+              </button>
             </div>
           </form>
         </Modal>
