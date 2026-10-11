@@ -59,8 +59,8 @@ export default function Dashboard() {
     if (!String(v.name).trim()) return toast('error', 'Product name is required');
     if (v.cost_price === '' || Number(v.cost_price) < 0) return toast('error', 'Enter a valid cost price');
     if (v.selling_price === '' || Number(v.selling_price) < 0) return toast('error', 'Enter a valid selling price');
-    if (v.stock_quantity === '' || Number(v.stock_quantity) < 0 || !Number.isInteger(Number(v.stock_quantity)))
-      return toast('error', 'Stock must be a whole number (0 or more)');
+    if (!isEdit && (v.stock_quantity === '' || Number(v.stock_quantity) < 0 || !Number.isInteger(Number(v.stock_quantity))))
+    return toast('error', 'Stock must be a whole number (0 or more)');
 
     const body = {
       sku: String(v.sku).trim(),
@@ -68,8 +68,9 @@ export default function Dashboard() {
       description: String(v.description).trim(),
       cost_price: Number(v.cost_price),
       selling_price: Number(v.selling_price),
-      stock_quantity: Number(v.stock_quantity),
     };
+    // Stock is only sent when adding a product. Editing never changes stock.
+    if (!isEdit) body.stock_quantity = Number(v.stock_quantity);
 
     setBusy(true);
     try {
@@ -225,14 +226,20 @@ export default function Dashboard() {
                 <input type="number" min="0" step="0.01" className={inputCls} value={formModal.values.selling_price} onChange={setValue('selling_price')} />
               </Field>
             </div>
-            <Field label={isEdit ? 'Stock quantity *' : 'Opening stock quantity *'}>
-              <input type="number" min="0" step="1" className={inputCls} value={formModal.values.stock_quantity} onChange={setValue('stock_quantity')} />
-            </Field>
-            {isEdit && (
-              <p className="rounded bg-amber-50 p-2 text-xs text-amber-700">
-                Changing stock here does not create a purchase or sale record. For normal stock changes use Stock IN or Stock OUT.
-              </p>
-            )}
+                <Field label={isEdit ? 'Current stock (read only)' : 'Opening stock quantity *'}>
+                    <input
+                        type="number" min="0" step="1"
+                        className={inputCls}
+                        disabled={isEdit}
+                        value={formModal.values.stock_quantity}
+                        onChange={setValue('stock_quantity')}
+                    />
+                </Field>
+                {isEdit && (
+                <p className="text-xs text-slate-500">
+                    Stock can only be changed through Stock IN and Stock OUT.
+                </p>
+                )}
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" className={btnGhost} onClick={() => setFormModal(null)}>Cancel</button>
               <button className={btnPrimary} disabled={busy}>
