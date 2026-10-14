@@ -1,12 +1,26 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Receipt } from 'lucide-react';
-import { productsApi, salesApi } from '../services/api.js';
-import { formatMoney, formatDate, todayISO } from '../utils.js';
-import { Card, Field, StatusBadge, PageLoader, Spinner, useToast, inputCls, btnPrimary } from '../components/ui.jsx';
-import LineItems, { emptyRow, rowIssues } from '../components/LineItems.jsx';
+import { useEffect, useState, useCallback } from "react";
+import { Receipt } from "lucide-react";
+import { productsApi, salesApi } from "../services/api.js";
+import { formatMoney, todayISO } from "../utils.js";
+import TransactionList from "../components/TransactionList.jsx";
+import {
+  Card,
+  Field,
+  StatusBadge,
+  PageLoader,
+  Spinner,
+  useToast,
+  inputCls,
+  btnPrimary,
+} from "../components/ui.jsx";
+import LineItems, { emptyRow, rowIssues } from "../components/LineItems.jsx";
 
 const emptyHeader = () => ({
-  customer_name: '', customer_phone: '', sold_by: '', sale_date: todayISO(), notes: '',
+  customer_name: "",
+  customer_phone: "",
+  sold_by: "",
+  sale_date: todayISO(),
+  notes: "",
 });
 
 export default function Sales() {
@@ -17,55 +31,83 @@ export default function Sales() {
   const [busy, setBusy] = useState(false);
   const [header, setHeader] = useState(emptyHeader());
   const [rows, setRows] = useState([emptyRow()]);
-  const [paid, setPaid] = useState('');
+  const [paid, setPaid] = useState("");
 
   const load = useCallback(async () => {
     try {
-      const [prods, sales] = await Promise.all([productsApi.getAll(), salesApi.getAll()]);
+      const [prods, sales] = await Promise.all([
+        productsApi.getAll(),
+        salesApi.getAll(),
+      ]);
       setProducts(prods);
       setHistory(sales);
     } catch (e) {
-      toast('error', e.message);
+      toast("error", e.message);
     }
     setLoading(false);
   }, [toast]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   // Live payment summary
-  const grandTotal = rows.reduce((sum, r) => sum + (Number(r.quantity) || 0) * (Number(r.price) || 0), 0);
+  const grandTotal = rows.reduce(
+    (sum, r) => sum + (Number(r.quantity) || 0) * (Number(r.price) || 0),
+    0,
+  );
   const paidNum = Number(paid) || 0;
   const remaining = Math.max(grandTotal - paidNum, 0);
-  const status = grandTotal > 0 && paidNum >= grandTotal ? 'PAID' : paidNum > 0 ? 'PARTIAL' : 'DUE';
+  const status =
+    grandTotal > 0 && paidNum >= grandTotal
+      ? "PAID"
+      : paidNum > 0
+        ? "PARTIAL"
+        : "DUE";
 
   const findProduct = (id) => products.find((p) => String(p.id) === String(id));
 
   const submit = async () => {
-    if (!header.customer_name.trim()) return toast('error', 'Customer name is required');
-    if (!header.sold_by.trim()) return toast('error', 'Sold By is required');
-    if (!header.sale_date) return toast('error', 'Sale date is required');
+    if (!header.customer_name.trim())
+      return toast("error", "Customer name is required");
+    if (!header.sold_by.trim()) return toast("error", "Sold By is required");
+    if (!header.sale_date) return toast("error", "Sale date is required");
 
     for (const r of rows) {
-      if (!r.product_id) return toast('error', 'Select a product on every row');
+      if (!r.product_id) return toast("error", "Select a product on every row");
       if (!(Number(r.quantity) > 0) || !Number.isInteger(Number(r.quantity)))
-        return toast('error', 'Quantity must be a whole number greater than 0');
-      if (r.price === '' || Number(r.price) < 0) return toast('error', 'Enter a valid selling price on every row');
+        return toast("error", "Quantity must be a whole number greater than 0");
+      if (r.price === "" || Number(r.price) < 0)
+        return toast("error", "Enter a valid selling price on every row");
     }
 
     // Stock check (adds up the same product if it appears on more than one row)
     const used = {};
-    for (const r of rows) used[r.product_id] = (used[r.product_id] || 0) + Number(r.quantity);
+    for (const r of rows)
+      used[r.product_id] = (used[r.product_id] || 0) + Number(r.quantity);
     for (const id in used) {
       const p = findProduct(id);
       if (used[id] > p.stock_quantity)
-        return toast('error', `${p.name}: only ${p.stock_quantity} in stock, but ${used[id]} requested`);
+        return toast(
+          "error",
+          `${p.name}: only ${p.stock_quantity} in stock, but ${used[id]} requested`,
+        );
     }
 
-    if (paidNum < 0) return toast('error', 'Amount paid cannot be negative');
-    if (paidNum > grandTotal) return toast('error', 'Amount paid cannot be more than the grand total');
+    if (paidNum < 0) return toast("error", "Amount paid cannot be negative");
+    if (paidNum > grandTotal)
+      return toast("error", "Amount paid cannot be more than the grand total");
 
-    const belowCost = rows.some((r) => rowIssues(r, findProduct(r.product_id), true).warning);
-    if (belowCost && !window.confirm('Some items are priced below cost. Do you want to continue?')) return;
+    const belowCost = rows.some(
+      (r) => rowIssues(r, findProduct(r.product_id), true).warning,
+    );
+    if (
+      belowCost &&
+      !window.confirm(
+        "Some items are priced below cost. Do you want to continue?",
+      )
+    )
+      return;
 
     const body = {
       customer_name: header.customer_name.trim(),
@@ -79,25 +121,27 @@ export default function Sales() {
         selling_price: Number(r.price),
       })),
     };
-    if (header.customer_phone.trim()) body.customer_phone = header.customer_phone.trim();
+    if (header.customer_phone.trim())
+      body.customer_phone = header.customer_phone.trim();
 
     setBusy(true);
     try {
       const res = await salesApi.create(body);
-      toast('success', res.message || 'Sale recorded successfully');
+      toast("success", res.message || "Sale recorded successfully");
       setHeader(emptyHeader());
       setRows([emptyRow()]);
-      setPaid('');
+      setPaid("");
       load();
     } catch (err) {
-      toast('error', err.message);
+      toast("error", err.message);
     }
     setBusy(false);
   };
 
   if (loading) return <PageLoader />;
 
-  const setField = (key) => (e) => setHeader({ ...header, [key]: e.target.value });
+  const setField = (key) => (e) =>
+    setHeader({ ...header, [key]: e.target.value });
 
   return (
     <div className="space-y-5">
@@ -106,26 +150,54 @@ export default function Sales() {
       <Card>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Customer name *">
-            <input className={inputCls} value={header.customer_name} onChange={setField('customer_name')} />
+            <input
+              className={inputCls}
+              value={header.customer_name}
+              onChange={setField("customer_name")}
+            />
           </Field>
           <Field label="Customer phone">
-            <input type="tel" className={inputCls} value={header.customer_phone} onChange={setField('customer_phone')} />
+            <input
+              type="tel"
+              className={inputCls}
+              value={header.customer_phone}
+              onChange={setField("customer_phone")}
+            />
           </Field>
           <Field label="Sold By *">
-            <input className={inputCls} value={header.sold_by} onChange={setField('sold_by')} />
+            <input
+              className={inputCls}
+              value={header.sold_by}
+              onChange={setField("sold_by")}
+            />
           </Field>
           <Field label="Sale date *">
-            <input type="date" max={todayISO()} className={inputCls} value={header.sale_date} onChange={setField('sale_date')} />
+            <input
+              type="date"
+              max={todayISO()}
+              className={inputCls}
+              value={header.sale_date}
+              onChange={setField("sale_date")}
+            />
           </Field>
           <Field label="Notes" className="sm:col-span-2">
-            <input className={inputCls} value={header.notes} onChange={setField('notes')} />
+            <input
+              className={inputCls}
+              value={header.notes}
+              onChange={setField("notes")}
+            />
           </Field>
         </div>
       </Card>
 
       <Card>
         <h2 className="mb-3 font-semibold">Items</h2>
-        <LineItems mode="sale" products={products} rows={rows} setRows={setRows} />
+        <LineItems
+          mode="sale"
+          products={products}
+          rows={rows}
+          setRows={setRows}
+        />
       </Card>
 
       <Card className="space-y-4">
@@ -137,56 +209,47 @@ export default function Sales() {
           </div>
           <Field label="Cash / Amount paid now">
             <input
-              type="number" min="0" step="0.01" placeholder="0"
-              className={`${inputCls} ${paidNum > grandTotal ? 'border-red-400' : ''}`}
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0"
+              className={`${inputCls} ${paidNum > grandTotal ? "border-red-400" : ""}`}
               value={paid}
               onChange={(e) => setPaid(e.target.value)}
             />
           </Field>
           <div>
             <p className="text-xs uppercase text-slate-500">Remaining Due</p>
-            <p className={`text-2xl font-bold ${remaining > 0 ? 'text-red-600' : 'text-green-600'}`}>
+            <p
+              className={`text-2xl font-bold ${remaining > 0 ? "text-red-600" : "text-green-600"}`}
+            >
               {formatMoney(remaining)}
             </p>
           </div>
           <div>{grandTotal > 0 && <StatusBadge status={status} />}</div>
         </div>
         {paidNum > grandTotal && (
-          <p className="text-xs font-medium text-red-600">Amount paid is more than the grand total.</p>
+          <p className="text-xs font-medium text-red-600">
+            Amount paid is more than the grand total.
+          </p>
         )}
-        <button className={`${btnPrimary} w-full py-3 sm:w-auto`} disabled={busy} onClick={submit}>
+        <button
+          className={`${btnPrimary} w-full py-3 sm:w-auto`}
+          disabled={busy}
+          onClick={submit}
+        >
           {busy ? <Spinner /> : <Receipt size={18} />} Finalize Sale
         </button>
       </Card>
 
-      {/* Recent sales */}
+      {/* Sales history */}
       <Card>
-        <h2 className="mb-3 font-semibold">Recent Sales</h2>
-        {history.length === 0 && <p className="py-6 text-center text-sm text-slate-500">No sales yet.</p>}
-        <div className="space-y-3">
-          {history.map((s) => (
-            <div key={s.id} className="rounded-lg border border-slate-200 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="font-semibold">{s.customer_name}</p>
-                  <p className="text-xs text-slate-500">
-                    #{s.id} · {formatDate(s.sale_date)}
-                    {s.notes ? ` · ${s.notes}` : ''}
-                  </p>
-                </div>
-                <p className="font-bold">{formatMoney(Number(s.total_amount))}</p>
-              </div>
-              <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                {s.items.map((it) => (
-                  <li key={it.id} className="flex justify-between gap-2">
-                    <span>{it.product_name} x {it.quantity} @ {formatMoney(it.selling_price)}</span>
-                    <span>{formatMoney(it.line_total)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
+        <h2 className="mb-4 font-semibold">Sales History</h2>
+        <TransactionList
+          type="sale"
+          items={history}
+          emptyText="No sales yet."
+        />
       </Card>
     </div>
   );
