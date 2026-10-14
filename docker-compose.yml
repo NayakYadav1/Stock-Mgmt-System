@@ -7,9 +7,9 @@ services:
     environment:
       POSTGRES_DB: stock_db
       POSTGRES_USER: stock_user
-      POSTGRES_PASSWORD: dev_password_change_me
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -30,7 +30,7 @@ services:
       DB_PORT: 5432
       DB_NAME: stock_db
       DB_USER: stock_user
-      DB_PASSWORD: dev_password_change_me
+      DB_PASSWORD: ${DB_PASSWORD}
     ports:
       - "5000:5000"
     depends_on:
