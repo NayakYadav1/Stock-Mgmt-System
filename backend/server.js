@@ -10,6 +10,8 @@ const purchaseRoutes = require("./routes/purchaseRoutes");
 const saleRoutes = require("./routes/saleRoutes");
 const ledgerRoutes = require("./routes/ledgerRoutes");
 
+const partyRoutes = require("./routes/partyRoutes");
+
 
 
 const app = express();
@@ -25,7 +27,7 @@ app.use("/api/purchases", purchaseRoutes);
 app.use("/api/sales", saleRoutes);
 app.use("/api/ledger", ledgerRoutes);
 
-
+app.use("/api/parties", partyRoutes);
 
 // Health check: verify the API and database.
 app.get("/health", async (req, res) => {
