@@ -27,7 +27,7 @@ services:
       PORT: 5000
       DB_HOST: db
       DB_PORT: 5432
-      DB_NAME: stock_db
+      DB_NAME: stock_clean
       DB_USER: stock_user
       DB_PASSWORD: dev_password_change_me
     ports:

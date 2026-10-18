@@ -1,3 +1,4 @@
+const productModel = require("../models/productModel");
 const pool = require("../config/db");
 
 // Validate a product ID from the URL.
@@ -23,39 +24,21 @@ function formatProduct(product) {
 // Fetch all products and the most recent purchase unit cost.
 async function getAllProducts(req, res) {
   try {
-    const query = `
-      SELECT
-        p.id,
-        p.sku,
-        p.name,
-        p.description,
-        p.cost_price,
-        p.selling_price,
-        p.stock_quantity,
-        p.created_at,
-        p.updated_at,
-        latest.unit_cost AS latest_unit_cost
-      FROM products AS p
-      LEFT JOIN LATERAL (
-        SELECT pi.unit_cost
-        FROM purchase_items AS pi
-        WHERE pi.product_id = p.id
-        ORDER BY pi.id DESC
-        LIMIT 1
-      ) AS latest ON TRUE
-      ORDER BY p.id DESC
-    `;
-
-    const result = await pool.query(query);
+    const products = await productModel.getAll();
 
     return res.status(200).json({
       success: true,
-      count: result.rows.length,
-      data: result.rows.map(formatProduct),
+      count: products.length,
+      data: products.map((product) => ({
+        ...product,
+        cost_price: Number(product.cost_price),
+        selling_price: Number(product.selling_price),
+        stock_quantity: Number(product.stock_quantity),
+        low_stock_threshold: Number(product.low_stock_threshold),
+      })),
     });
   } catch (error) {
     console.error("Get products error:", error.message);
-
     return res.status(500).json({
       success: false,
       message: "Failed to fetch products",
