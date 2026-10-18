@@ -1,12 +1,37 @@
 
 const db = require("../config/db");
 
-// POST /api/purchases
-// Create a purchase bill and increase product stock atomically.
-async function createPurchase(req, res) {
-  const { supplier_name, notes = null, items } = req.body || {};
+function normalizeProductName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/\s*-\s*/g, "-");
+}
 
-  // Validate the supplier.
+function generateProductSku(name) {
+  const slug = normalizeProductName(name)
+    .replace(/[^a-zA-Z0-9- ]+/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .toUpperCase();
+
+  const base = slug || "PROD";
+  const suffix = String(Date.now()).slice(-6);
+  return `${base.slice(0, 20)}-${suffix}`;
+}
+
+function parseMoney(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) {
+    return null;
+  }
+  return Number(num.toFixed(2));
+}
+
+async function createPurchase(req, res) {
+  const { supplier_name, bill_no = "", purchased_by = "", notes = null, items } = req.body || {};
+
   if (
     typeof supplier_name !== "string" ||
     !supplier_name.trim() ||
@@ -18,6 +43,20 @@ async function createPurchase(req, res) {
     });
   }
 
+  if (typeof bill_no !== "string" || bill_no.length > 100) {
+    return res.status(400).json({
+      success: false,
+      message: "bill_no must be a string with at most 100 characters",
+    });
+  }
+
+  if (typeof purchased_by !== "string" || !purchased_by.trim() || purchased_by.trim().length > 200) {
+    return res.status(400).json({
+      success: false,
+      message: "purchased_by must be a non-empty string with at most 200 characters",
+    });
+  }
+
   if (notes !== null && typeof notes !== "string") {
     return res.status(400).json({
       success: false,
@@ -25,7 +64,6 @@ async function createPurchase(req, res) {
     });
   }
 
-  // Require at least one purchase line.
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({
       success: false,
@@ -33,27 +71,13 @@ async function createPurchase(req, res) {
     });
   }
 
-  // Validate every line before opening a transaction.
-  for (let i = 0; i < items.length; i++) {
+  for (let i = 0; i < items.length; i += 1) {
     const item = items[i];
 
     if (!item || typeof item !== "object" || Array.isArray(item)) {
       return res.status(400).json({
         success: false,
         message: `Purchase item ${i + 1} must be an object`,
-      });
-    }
-
-    if (
-      item.product_id === undefined ||
-      item.product_id === null ||
-      typeof item.product_id === "boolean" ||
-      !/^[1-9]\d*$/.test(String(item.product_id)) ||
-      !Number.isSafeInteger(Number(item.product_id))
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: `Purchase item ${i + 1} has an invalid product_id`,
       });
     }
 
@@ -68,117 +92,170 @@ async function createPurchase(req, res) {
       });
     }
 
-    if (
-      item.unit_cost === undefined ||
-      item.unit_cost === null ||
-      typeof item.unit_cost === "boolean" ||
-      !/^\d+(\.\d{1,2})?$/.test(String(item.unit_cost)) ||
-      !Number.isFinite(Number(item.unit_cost)) ||
-      Number(item.unit_cost) > 9999999999.99
-    ) {
+    const unitCost = parseMoney(item.unit_cost);
+    if (unitCost === null || unitCost < 0) {
       return res.status(400).json({
         success: false,
-        message: `Purchase item ${i + 1} unit_cost must be a non-negative amount with at most two decimal places`,
+        message: `Purchase item ${i + 1} unit_cost must be a valid non-negative amount`,
       });
+    }
+
+    const hasExistingProduct = item.product_id !== undefined && item.product_id !== null && item.product_id !== "";
+    const hasNewProduct = item.new_product && typeof item.new_product === "object";
+
+    if (!hasExistingProduct && !hasNewProduct) {
+      return res.status(400).json({
+        success: false,
+        message: `Purchase item ${i + 1} must include either product_id or new_product`,
+      });
+    }
+
+    if (hasExistingProduct) {
+      if (
+        typeof item.product_id === "boolean" ||
+        !/^[1-9]\d*$/.test(String(item.product_id)) ||
+        !Number.isSafeInteger(Number(item.product_id))
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: `Purchase item ${i + 1} has an invalid product_id`,
+        });
+      }
+    }
+
+    if (hasNewProduct) {
+      const productName = normalizeProductName(item.new_product.name);
+      const productSellingPrice = parseMoney(item.new_product.selling_price ?? item.new_product.sellingPrice ?? item.unit_cost);
+
+      if (!productName || productName.length > 200) {
+        return res.status(400).json({
+          success: false,
+          message: `Purchase item ${i + 1} new_product.name must be a valid product name`,
+        });
+      }
+
+      if (productSellingPrice === null || productSellingPrice < 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Purchase item ${i + 1} new_product.selling_price must be a valid non-negative amount`,
+        });
+      }
     }
   }
 
-  // Obtain a dedicated client for the entire transaction.
   let client;
 
   try {
     client = await db.connect();
     await client.query("BEGIN");
 
-    // Lock referenced product rows in a consistent order.
-    // This prevents stock changes from racing with other
-    // transactions and detects nonexistent products.
-    const productIds = [
-      ...new Set(items.map((item) => String(item.product_id))),
-    ];
-
-    const productResult = await client.query(
-      `SELECT id
-       FROM products
-       WHERE id = ANY($1::bigint[])
-       ORDER BY id
-       FOR UPDATE`,
-      [productIds]
-    );
-
-    const foundIds = new Set(
-      productResult.rows.map((row) => String(row.id))
-    );
-
-    const missingIds = productIds.filter((id) => !foundIds.has(id));
-
-    if (missingIds.length > 0) {
-      await client.query("ROLLBACK");
-
-      return res.status(400).json({
-        success: false,
-        message: "One or more products do not exist",
-        product_ids: missingIds,
-      });
-    }
-
-    // 1. Insert the purchase bill header.
     const purchaseResult = await client.query(
-      `INSERT INTO purchases (supplier_name, notes)
-       VALUES ($1, $2)
-       RETURNING id, supplier_name, purchase_date, total_amount, notes, created_at`,
-      [supplier_name.trim(), notes === null ? null : notes.trim()]
+      `INSERT INTO purchases (supplier_name, bill_no, purchased_by, total_amount, notes)
+       VALUES ($1, $2, $3, 0, $4)
+       RETURNING id, supplier_name, bill_no, purchased_by, purchase_date, total_amount, notes, created_at`,
+      [supplier_name.trim(), bill_no.trim(), purchased_by.trim(), notes === null ? null : notes.trim()]
     );
 
     const purchase = purchaseResult.rows[0];
+    let totalAmount = 0;
 
-    // 2. Insert line items and increase stock.
-    for (const item of items) {
-      const productId = String(item.product_id);
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
       const quantity = Number(item.quantity);
-      const unitCost = String(item.unit_cost);
+      const unitCost = parseMoney(item.unit_cost);
+      const hasExistingProduct = item.product_id !== undefined && item.product_id !== null && item.product_id !== "";
+
+      let productId;
+      let productName;
+      let productSku;
+      let productSellingPrice;
+
+      if (hasExistingProduct) {
+        const existingResult = await client.query(
+          `SELECT id, name, cost_price, selling_price, stock_quantity
+           FROM products
+           WHERE id = $1
+           FOR UPDATE`,
+          [Number(item.product_id)]
+        );
+
+        if (existingResult.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({
+            success: false,
+            message: `Product with ID ${item.product_id} was not found`,
+          });
+        }
+
+        const product = existingResult.rows[0];
+        productId = Number(product.id);
+        productName = product.name;
+        productSku = null;
+        productSellingPrice = Number(product.selling_price);
+      } else {
+        const productNameInput = normalizeProductName(item.new_product.name);
+        const existingNameCheck = await client.query(
+          `SELECT id
+           FROM products
+           WHERE LOWER(TRIM(name)) = LOWER($1)
+           LIMIT 1`,
+          [productNameInput]
+        );
+
+        if (existingNameCheck.rowCount > 0) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({
+            success: false,
+            message: `A product named "${productNameInput}" already exists`,
+          });
+        }
+
+        const generatedSku = generateProductSku(productNameInput);
+        const sellingPrice = parseMoney(item.new_product.selling_price ?? item.new_product.sellingPrice ?? item.unit_cost);
+        const productInsert = await client.query(
+          `INSERT INTO products (sku, name, description, cost_price, selling_price, stock_quantity)
+           VALUES ($1, $2, $3, $4, $5, 0)
+           RETURNING id, sku, name, selling_price`,
+          [generatedSku, productNameInput, item.new_product.description ?? null, unitCost, sellingPrice]
+        );
+
+        const product = productInsert.rows[0];
+        productId = Number(product.id);
+        productName = product.name;
+        productSku = product.sku;
+        productSellingPrice = Number(product.selling_price);
+      }
+
+      const lineTotal = Number((quantity * unitCost).toFixed(2));
+      totalAmount = Number((totalAmount + lineTotal).toFixed(2));
 
       await client.query(
-        `INSERT INTO purchase_items
-           (purchase_id, product_id, quantity, unit_cost)
+        `INSERT INTO purchase_items (purchase_id, product_id, quantity, unit_cost)
          VALUES ($1, $2, $3, $4)`,
         [purchase.id, productId, quantity, unitCost]
       );
 
-      const stockResult = await client.query(
+      await client.query(
         `UPDATE products
          SET stock_quantity = stock_quantity + $1,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2
-         RETURNING id`,
+         WHERE id = $2`,
         [quantity, productId]
       );
 
-      if (stockResult.rowCount !== 1) {
-        throw new Error(`Failed to update stock for product ${productId}`);
+      if (hasExistingProduct && productSellingPrice === 0 && Number(item.unit_cost) > 0) {
+        // keep stock and purchase history without rewriting product prices
       }
     }
 
-    // 3. Calculate the total using PostgreSQL NUMERIC arithmetic.
-    const totalResult = await client.query(
-      `SELECT COALESCE(SUM(line_total), 0)::numeric(14, 2) AS total_amount
-       FROM purchase_items
-       WHERE purchase_id = $1`,
-      [purchase.id]
-    );
-
-    const totalAmount = totalResult.rows[0].total_amount;
-
-    // 4. Save the calculated total in the purchase header.
-    const updatedPurchaseResult = await client.query(
+    const purchaseUpdate = await client.query(
       `UPDATE purchases
        SET total_amount = $1
        WHERE id = $2
-       RETURNING id, supplier_name, purchase_date, total_amount, notes, created_at`,
+       RETURNING id, supplier_name, bill_no, purchased_by, purchase_date, total_amount, notes, created_at`,
       [totalAmount, purchase.id]
     );
 
-    // 5. Read the inserted bill lines for the response.
     const itemsResult = await client.query(
       `SELECT
          pi.id,
@@ -195,14 +272,13 @@ async function createPurchase(req, res) {
       [purchase.id]
     );
 
-    // Nothing is persisted until all operations succeed.
     await client.query("COMMIT");
 
     return res.status(201).json({
       success: true,
       message: "Purchase recorded successfully",
       data: {
-        ...updatedPurchaseResult.rows[0],
+        ...purchaseUpdate.rows[0],
         items: itemsResult.rows,
       },
     });
@@ -224,10 +300,10 @@ async function createPurchase(req, res) {
       });
     }
 
-    if (error.code === "22003") {
-      return res.status(400).json({
+    if (error.code === "23505") {
+      return res.status(409).json({
         success: false,
-        message: "A quantity or monetary total exceeds the database limit",
+        message: "A product with the same SKU or name already exists",
       });
     }
 

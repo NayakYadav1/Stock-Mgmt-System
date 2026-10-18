@@ -32,7 +32,8 @@ async function getDueLedger(req, res) {
     const result = await db.query(
       `SELECT 
          s.id AS sale_id, 
-         s.customer_name, 
+         s.customer_name,
+         s.customer_phone,
          s.sale_date, 
          s.total_amount, 
          s.amount_paid, 
@@ -105,6 +106,7 @@ async function recordPayment(req, res) {
 
   const allowedPaymentMethods = [
     "cash",
+    "fonepay",
     "bank_transfer",
     "card",
     "mobile_payment",
