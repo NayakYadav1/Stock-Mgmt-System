@@ -13,10 +13,7 @@ function formatProduct(product) {
     cost_price: Number(product.cost_price),
     selling_price: Number(product.selling_price),
     stock_quantity: Number(product.stock_quantity),
-    latest_unit_cost:
-      product.latest_unit_cost === null
-        ? null
-        : Number(product.latest_unit_cost),
+    low_stock_threshold: Number(product.low_stock_threshold),
   };
 }
 
@@ -49,147 +46,83 @@ async function getAllProducts(req, res) {
 // POST /api/products
 // Create a new product.
 async function createProduct(req, res) {
+  const {
+    sku,
+    name,
+    cost_price,
+    selling_price,
+    low_stock_threshold = 5,
+  } = req.body || {};
+
+  const validPrice = (value) =>
+    (typeof value === "number" || typeof value === "string") &&
+    /^\d{1,10}(\.\d{1,2})?$/.test(String(value)) &&
+    Number.isFinite(Number(value));
+
+  if (typeof sku !== "string" || !sku.trim() || sku.trim().length > 100) {
+    return res.status(400).json({
+      success: false,
+      message: "Valid SKU is required (max 100 characters)",
+    });
+  }
+
+  if (typeof name !== "string" || !name.trim() || name.trim().length > 200) {
+    return res.status(400).json({
+      success: false,
+      message: "Valid product name is required (max 200 characters)",
+    });
+  }
+
+  if (!validPrice(cost_price) || !validPrice(selling_price)) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "Prices must be non-negative amounts with at most two decimal places",
+    });
+  }
+
+  if (
+    typeof low_stock_threshold === "boolean" ||
+    !Number.isSafeInteger(Number(low_stock_threshold)) ||
+    Number(low_stock_threshold) < 0
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Low-stock threshold must be a non-negative integer",
+    });
+  }
+
   try {
-    const {
-      sku,
-      name,
-      description = null,
-      cost_price,
-      selling_price,
-      stock_quantity = 0,
-    } = req.body;
-
-    // Validate required text fields.
-    if (
-      typeof sku !== "string" ||
-      !sku.trim() ||
-      typeof name !== "string" ||
-      !name.trim()
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "SKU and product name are required",
-      });
-    }
-
-    if (sku.trim().length > 100 || name.trim().length > 200) {
-      return res.status(400).json({
-        success: false,
-        message: "SKU or product name exceeds the maximum length",
-      });
-    }
-
-    if (
-      description !== null &&
-      typeof description !== "string"
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Description must be a string or null",
-      });
-    }
-
-    // Validate prices.
-    if (
-      cost_price === undefined ||
-      cost_price === null ||
-      selling_price === undefined ||
-      selling_price === null ||
-      typeof cost_price === "boolean" ||
-      typeof selling_price === "boolean" ||
-      !Number.isFinite(Number(cost_price)) ||
-      !Number.isFinite(Number(selling_price))
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Valid cost_price and selling_price are required",
-      });
-    }
-
-    const cost = Number(cost_price);
-    const selling = Number(selling_price);
-
-    if (
-      cost < 0 ||
-      selling < 0 ||
-      !Number.isSafeInteger(Math.round(cost * 100)) ||
-      !Number.isSafeInteger(Math.round(selling * 100))
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Prices must be non-negative valid monetary amounts",
-      });
-    }
-
-    if (selling < cost) {
-      return res.status(400).json({
-        success: false,
-        message: "Selling price cannot be lower than cost price",
-      });
-    }
-
-    // Validate opening stock quantity.
-    if (
-      typeof stock_quantity === "boolean" ||
-      !Number.isSafeInteger(Number(stock_quantity)) ||
-      Number(stock_quantity) < 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Stock quantity must be a non-negative integer",
-      });
-    }
-
-    const stock = Number(stock_quantity);
-
-    const query = `
-      INSERT INTO products (
-        sku,
-        name,
-        description,
-        cost_price,
-        selling_price,
-        stock_quantity
-      )
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING
-        id, sku, name, description, cost_price,
-        selling_price, stock_quantity, created_at, updated_at
-    `;
-
-    const values = [
-      sku.trim(),
-      name.trim(),
-      description === null ? null : description.trim(),
-      cost,
-      selling,
-      stock,
-    ];
-
-    const result = await pool.query(query, values);
+    const product = await productModel.create({
+      sku: sku.trim(),
+      name: name.trim().replace(/\s+/g, " "),
+      cost_price: Number(cost_price),
+      selling_price: Number(selling_price),
+      low_stock_threshold: Number(low_stock_threshold),
+    });
 
     return res.status(201).json({
       success: true,
       message: "Product created successfully",
-      data: formatProduct({
-        ...result.rows[0],
-        latest_unit_cost: null,
-      }),
+      data: {
+        ...product,
+        cost_price: Number(product.cost_price),
+        selling_price: Number(product.selling_price),
+        stock_quantity: Number(product.stock_quantity),
+        low_stock_threshold: Number(product.low_stock_threshold),
+      },
     });
   } catch (error) {
     if (error.code === "23505") {
-      return res.status(409).json({
-        success: false,
-        message: "A product with this SKU already exists",
-      });
+      return res
+        .status(409)
+        .json({ success: false, message: "SKU already exists" });
     }
 
     console.error("Create product error:", error.message);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to create product",
-    });
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to create product" });
   }
 }
 
@@ -209,15 +142,14 @@ async function updateProduct(req, res) {
   const allowedFields = [
     "sku",
     "name",
-    "description",
     "cost_price",
     "selling_price",
-    "stock_quantity",
+    "low_stock_threshold",
   ];
 
   const suppliedFields = Object.keys(req.body || {});
   const unknownFields = suppliedFields.filter(
-    (field) => !allowedFields.includes(field)
+    (field) => !allowedFields.includes(field),
   );
 
   if (unknownFields.length > 0) {
@@ -241,7 +173,7 @@ async function updateProduct(req, res) {
 
     const currentResult = await client.query(
       `SELECT * FROM products WHERE id = $1 FOR UPDATE`,
-      [id]
+      [id],
     );
 
     if (currentResult.rows.length === 0) {
@@ -275,22 +207,24 @@ async function updateProduct(req, res) {
           });
         }
 
-        next[field] = value.trim();
-      } else if (field === "description") {
-        if (value !== null && typeof value !== "string") {
+        next[field] =
+          field === "name" ? value.trim().replace(/\s+/g, " ") : value.trim();
+      } else if (field === "low_stock_threshold") {
+        if (
+          typeof value === "boolean" ||
+          !Number.isSafeInteger(Number(value)) ||
+          Number(value) < 0
+        ) {
           await client.query("ROLLBACK");
 
           return res.status(400).json({
             success: false,
-            message: "Description must be a string or null",
+            message: "low_stock_threshold must be a non-negative integer",
           });
         }
 
-        next.description = value === null ? null : value.trim();
-      } else if (
-        field === "cost_price" ||
-        field === "selling_price"
-      ) {
+        next.low_stock_threshold = Number(value);
+      } else if (field === "cost_price" || field === "selling_price") {
         if (
           value === null ||
           typeof value === "boolean" ||
@@ -307,56 +241,30 @@ async function updateProduct(req, res) {
         }
 
         next[field] = Number(value);
-      } else if (field === "stock_quantity") {
-        if (
-          typeof value === "boolean" ||
-          !Number.isSafeInteger(Number(value)) ||
-          Number(value) < 0
-        ) {
-          await client.query("ROLLBACK");
-
-          return res.status(400).json({
-            success: false,
-            message: "Stock quantity must be a non-negative integer",
-          });
-        }
-
-        next.stock_quantity = Number(value);
       }
     }
 
-    if (Number(next.selling_price) < Number(next.cost_price)) {
-      await client.query("ROLLBACK");
-
-      return res.status(400).json({
-        success: false,
-        message: "Selling price cannot be lower than cost price",
-      });
-    }
-
     const updateQuery = `
-      UPDATE products
-      SET
-        sku = $1,
-        name = $2,
-        description = $3,
-        cost_price = $4,
-        selling_price = $5,
-        stock_quantity = $6,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $7
-      RETURNING
-        id, sku, name, description, cost_price,
-        selling_price, stock_quantity, created_at, updated_at
-    `;
+    UPDATE products
+    SET
+      sku = $1,
+      name = $2,
+      cost_price = $3,
+      selling_price = $4,
+      low_stock_threshold = $5,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = $6 
+    RETURNING
+      id, sku, name, cost_price, selling_price,
+      stock_quantity, low_stock_threshold, created_at, updated_at
+  `;
 
     const values = [
       next.sku,
       next.name,
-      next.description,
       next.cost_price,
       next.selling_price,
-      next.stock_quantity,
+      next.low_stock_threshold,
       id,
     ];
 
@@ -367,10 +275,7 @@ async function updateProduct(req, res) {
     return res.status(200).json({
       success: true,
       message: "Product updated successfully",
-      data: formatProduct({
-        ...result.rows[0],
-        latest_unit_cost: null,
-      }),
+      data: formatProduct(result.rows[0]),
     });
   } catch (error) {
     try {
@@ -412,7 +317,7 @@ async function deleteProduct(req, res) {
   try {
     const result = await pool.query(
       `DELETE FROM products WHERE id = $1 RETURNING id, sku, name`,
-      [id]
+      [id],
     );
 
     if (result.rows.length === 0) {
@@ -433,7 +338,7 @@ async function deleteProduct(req, res) {
       return res.status(409).json({
         success: false,
         message:
-          "Cannot delete this product because it is referenced by purchase or sales history",
+          "Cannot delete this product because it is referenced by transaction history",
       });
     }
 
