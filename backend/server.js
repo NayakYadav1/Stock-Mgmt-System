@@ -4,13 +4,11 @@ const express = require("express");
 const cors = require("cors");
 const pool = require("./config/db");
 
-const customerRoutes = require("./routes/customerRoutes");
 const productRoutes = require("./routes/productRoutes");
-const purchaseRoutes = require("./routes/purchaseRoutes");
-const saleRoutes = require("./routes/saleRoutes");
-const ledgerRoutes = require("./routes/ledgerRoutes");
-
-
+const partyRoutes = require("./routes/partyRoutes");
+const transactionRoutes = require("./routes/transactionRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
+const dashboardRoutes = require("./routes/dashboardRoutes");
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
@@ -19,13 +17,11 @@ const PORT = Number(process.env.PORT) || 5000;
 app.use(cors());
 app.use(express.json());
 
-app.use("/api/customers", customerRoutes);
 app.use("/api/products", productRoutes);
-app.use("/api/purchases", purchaseRoutes);
-app.use("/api/sales", saleRoutes);
-app.use("/api/ledger", ledgerRoutes);
-
-
+app.use("/api/parties", partyRoutes);
+app.use("/api/transactions", transactionRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 // Health check: verify the API and database.
 app.get("/health", async (req, res) => {
