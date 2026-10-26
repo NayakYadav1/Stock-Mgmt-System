@@ -4,6 +4,7 @@ import { transactionsApi } from "../services/api.js";
 import { formatDate, formatMoney } from "../utils.js";
 import { useToast } from "../components/ui.jsx";
 import StockInForm from "../components/StockInForm.jsx";
+import StockOutForm from "../components/StockOutForm.jsx";
 
 export default function Transactions() {
   const toast = useToast();
@@ -56,7 +57,10 @@ export default function Transactions() {
         </button>
       </div>
 
-      <StockInForm onSaved={load} />
+      <div className="grid gap-5 lg:grid-cols-2">
+        <StockInForm onSaved={load} />
+        <StockOutForm onSaved={load} />
+      </div>
       <div className="flex flex-wrap gap-2">
         {[
           ["all", "All"],
