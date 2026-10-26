@@ -22,7 +22,23 @@ const cleanProduct = (p) => ({
   cost_price: n(p.cost_price),
   selling_price: n(p.selling_price),
   stock_quantity: n(p.stock_quantity),
-  latest_unit_cost: p.latest_unit_cost == null ? null : n(p.latest_unit_cost),
+  low_stock_threshold: n(p.low_stock_threshold),
+});
+
+const cleanParty = (party) => ({
+  ...party,
+  balance: n(party.balance),
+});
+
+const cleanTransaction = (transaction) => ({
+  ...transaction,
+  total_amount: n(transaction.total_amount),
+  items: (transaction.items || []).map((item) => ({
+    ...item,
+    quantity: n(item.quantity),
+    unit_price: n(item.unit_price),
+    line_total: n(item.line_total),
+  })),
 });
 
 const cleanDue = (d) => ({
@@ -52,4 +68,37 @@ export const salesApi = {
 export const ledgerApi = {
   getDue: async () => (await api.get('/ledger/due')).data.data.map(cleanDue),
   pay: async (body) => (await api.post('/ledger/pay', body)).data,
+};
+
+export const partiesApi = {
+  getAll: async (type) =>
+    (
+      await api.get("/parties", {
+        params: type ? { type } : {},
+      })
+    ).data.data.map(cleanParty),
+
+  getLedger: async (id) => (await api.get(`/parties/${id}/ledger`)).data.data,
+  create: async (body) => (await api.post("/parties", body)).data,
+  update: async (id, body) => (await api.patch(`/parties/${id}`, body)).data,
+  remove: async (id) => (await api.delete(`/parties/${id}`)).data,
+};
+
+export const transactionsApi = {
+  getAll: async () =>
+    (await api.get("/transactions")).data.data.map(cleanTransaction),
+
+  createPurchase: async (body) =>
+    (await api.post("/transactions/purchases", body)).data,
+
+  createSale: async (body) =>
+    (await api.post("/transactions/sales", body)).data,
+};
+
+export const paymentsApi = {
+  settle: async (body) => (await api.post("/payments", body)).data,
+};
+
+export const dashboardApi = {
+  getSummary: async () => (await api.get("/dashboard")).data.data,
 };
