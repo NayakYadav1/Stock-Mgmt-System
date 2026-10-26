@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Plus, Users } from "lucide-react";
 import { partiesApi } from "../services/api.js";
 import { formatMoney } from "../utils.js";
+import PartyLedgerModal from "../components/PartyLedgerModal.jsx";
 import {
   btnGhost,
   btnPrimary,
@@ -27,13 +28,16 @@ export default function PartyKhata() {
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [selectedParty, setSelectedParty] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
-      setParties(await partiesApi.getAll(filter === "all" ? undefined : filter));
+      setParties(
+        await partiesApi.getAll(filter === "all" ? undefined : filter),
+      );
     } catch (err) {
       setError(err.message || "Could not load parties");
       toast("error", err.message || "Could not load parties");
@@ -190,6 +194,13 @@ export default function PartyKhata() {
                     {formatMoney(Math.abs(balance))}
                   </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedParty(party)}
+                  className={`${btnGhost} mt-3 w-full`}
+                >
+                  View ledger
+                </button>
               </article>
             );
           })}
@@ -271,6 +282,13 @@ export default function PartyKhata() {
             </div>
           </form>
         </Modal>
+      )}
+      {selectedParty && (
+        <PartyLedgerModal
+          party={selectedParty}
+          onClose={() => setSelectedParty(null)}
+          onUpdated={load}
+        />
       )}
     </div>
   );
