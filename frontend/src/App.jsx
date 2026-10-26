@@ -3,6 +3,7 @@ import Navbar from "./components/Navbar.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Inventory from "./pages/Inventory.jsx";
 import Transactions from "./pages/Transactions.jsx";
+import PartyKhata from "./pages/PartyKhata.jsx";
 
 function PlaceholderPage({ title }) {
   return (
@@ -26,10 +27,7 @@ export default function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/transactions" element={<Transactions />} />
-          <Route
-            path="/party-khata"
-            element={<PlaceholderPage title="Party Khata" />}
-          />
+          <Route path="/party-khata" element={<PartyKhata />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </main>
