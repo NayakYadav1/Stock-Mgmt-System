@@ -92,12 +92,15 @@ export default function PartyLedgerModal({ party, onClose, onUpdated }) {
     }
   };
 
-  const chronologicalEntries = [...(ledger?.entries || [])].reverse();
-  let runningBalance = 0;
-  const entriesWithBalance = chronologicalEntries.map((entry) => {
-    runningBalance += Number(entry.amount) || 0;
-    return { ...entry, runningBalance };
-  });
+  const entriesWithBalance = [...(ledger?.entries || [])]
+  .reverse()
+  .reduce((entries, entry) => {
+    const previousBalance =
+      entries.length > 0 ? entries[entries.length - 1].runningBalance : 0;
+    const runningBalance = previousBalance + (Number(entry.amount) || 0);
+
+    return [...entries, { ...entry, runningBalance }];
+  }, []);
 
   return (
     <Modal title={`${party.name} — Ledger`} onClose={onClose}>

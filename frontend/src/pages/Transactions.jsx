@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ArrowDownLeft, ArrowUpRight, RefreshCw } from "lucide-react";
 import { transactionsApi } from "../services/api.js";
 import { formatDate, formatMoney } from "../utils.js";
@@ -8,6 +9,23 @@ import StockOutForm from "../components/StockOutForm.jsx";
 
 export default function Transactions() {
   const toast = useToast();
+  const [searchParams] = useSearchParams();
+  const mode = searchParams.get("mode");
+
+  useEffect(() => {
+    const targetId =
+      mode === "purchase"
+        ? "stock-in-form"
+        : mode === "sale"
+          ? "stock-out-form"
+          : null;
+
+    if (targetId) {
+      document
+        .getElementById(targetId)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [mode]);
   const [transactions, setTransactions] = useState([]);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -58,8 +76,12 @@ export default function Transactions() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <StockInForm onSaved={load} />
-        <StockOutForm onSaved={load} />
+        <div id="stock-in-form" className="scroll-mt-5">
+          <StockInForm onSaved={load} />
+        </div>
+        <div id="stock-out-form" className="scroll-mt-5">
+          <StockOutForm onSaved={load} />
+        </div>
       </div>
       <div className="flex flex-wrap gap-2">
         {[

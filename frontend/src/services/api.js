@@ -41,33 +41,11 @@ const cleanTransaction = (transaction) => ({
   })),
 });
 
-const cleanDue = (d) => ({
-  ...d,
-  total_amount: n(d.total_amount),
-  amount_paid: n(d.amount_paid),
-  due_amount: n(d.due_amount),
-});
-
 export const productsApi = {
   getAll: async () => (await api.get('/products')).data.data.map(cleanProduct),
   create: async (body) => (await api.post('/products', body)).data,
   update: async (id, body) => (await api.put(`/products/${id}`, body)).data,
   remove: async (id) => (await api.delete(`/products/${id}`)).data,
-};
-
-export const purchasesApi = {
-  getAll: async () => (await api.get('/purchases')).data.data,
-  create: async (body) => (await api.post('/purchases', body)).data,
-};
-
-export const salesApi = {
-  getAll: async () => (await api.get('/sales')).data.data,
-  create: async (body) => (await api.post('/sales', body)).data,
-};
-
-export const ledgerApi = {
-  getDue: async () => (await api.get('/ledger/due')).data.data.map(cleanDue),
-  pay: async (body) => (await api.post('/ledger/pay', body)).data,
 };
 
 export const partiesApi = {

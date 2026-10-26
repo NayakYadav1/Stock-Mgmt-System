@@ -5,17 +5,6 @@ import Inventory from "./pages/Inventory.jsx";
 import Transactions from "./pages/Transactions.jsx";
 import PartyKhata from "./pages/PartyKhata.jsx";
 
-function PlaceholderPage({ title }) {
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h1 className="text-xl font-semibold text-slate-900">{title}</h1>
-      <p className="mt-2 text-sm text-slate-600">
-        This section will be built in a later step.
-      </p>
-    </section>
-  );
-}
-
 export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
