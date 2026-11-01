@@ -4,9 +4,9 @@ services:
     container_name: stock-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: stock_db
-      POSTGRES_USER: stock_user
-      POSTGRES_PASSWORD: dev_password_change_me
+      POSTGRES_DB: ${DB_NAME:-stock_db}
+      POSTGRES_USER: ${DB_USER:-stock_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in the root .env file}
     ports:
       - "5432:5432"
     volumes:
